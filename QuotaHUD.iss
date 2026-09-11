@@ -1,6 +1,6 @@
 ; QuotaHUD 安装包脚本（Inno Setup 6）
 #define MyAppName "QuotaHUD 额度悬浮窗"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppExeName "QuotaHUD.exe"
 
 [Setup]
@@ -12,7 +12,7 @@ DefaultDirName={localappdata}\QuotaHUD
 DefaultGroupName=QuotaHUD
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-OutputBaseFilename=QuotaHUD-Setup-1.0.0
+OutputBaseFilename=QuotaHUD-Setup-1.0.1
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern

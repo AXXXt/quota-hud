@@ -124,7 +124,8 @@ build.bat        # 一键：图标 → 文件夹版(PyInstaller) → 便携版(o
 # 产物：
 #   dist/QuotaHUD/QuotaHUD.exe                文件夹版（需与 _internal 同目录，供安装包使用）
 #   dist/QuotaHUD-Portable.exe                便携版单文件（可直接分发）
-#   Output/QuotaHUD-Setup-1.0.0.exe           安装包
+#   Output/QuotaHUD-Setup-1.0.1.exe           安装包
+#   Output/QuotaHUD-Portable-1.0.1.exe        便携版（复制到 Output）
 ```
 
 需要 Python 3.11+、[Inno Setup 6](https://jrsoftware.org/isinfo.php)（仅做安装包需要）。
