@@ -11,6 +11,14 @@ token 消耗**聚合到一个**液态玻璃悬浮窗**里，不用再一个个�
 
 > 界面文字为中文；代码/接口层与语言无关。
 
+## 界面预览
+
+| 迷你胶囊态（默认，只显示最近余额变动的站） | 展开面板（单击胶囊下拉） |
+|:---:|:---:|
+| ![胶囊态](docs/screenshots/pill.png) | ![展开面板](docs/screenshots/panel.png) |
+
+> 截图为实际运行效果；图中站点与余额为示例数据。
+
 ---
 
 ## 功能
@@ -111,4 +119,4 @@ _r(ok=True, main="$12.34", sub="已用 $5.00", used=5.0, limit=12.34, unit="USD"
 
 ## License
 
-MIT
+MIT © 2026 AXXXt —— 详见 [LICENSE](LICENSE)。

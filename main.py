@@ -365,11 +365,12 @@ def main():
             time.sleep(3600)
 
     import webview
+    start_expanded = "--expanded" in args     # 截图/调试用：启动即为展开态
     win = webview.create_window(
         "QuotaHUD",
         f"http://127.0.0.1:{PORT}/",
         js_api=Api(None),
-        width=PILL_W, height=PILL_H,
+        width=PILL_W, height=(PANEL_H if start_expanded else PILL_H),
         min_size=(PILL_W, PILL_H),
         resizable=True,
         frameless=True,
@@ -379,7 +380,16 @@ def main():
     )
     threading.Thread(target=glass_worker, daemon=True).start()
     make_tray()
-    webview.start(func=None, gui="edgechromium", debug=False)
+
+    def _after_start():
+        if start_expanded:
+            try:
+                win.evaluate_js("document.body.classList.add('expanded');"
+                                "document.querySelector('#panel').classList.add('show');")
+            except Exception:
+                pass
+
+    webview.start(func=(_after_start if start_expanded else None), gui="edgechromium", debug=False)
 
 
 if __name__ == "__main__":

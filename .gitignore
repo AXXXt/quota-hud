@@ -24,3 +24,6 @@ state.json
 .idea/
 .DS_Store
 Thumbs.db
+
+# 本地开发辅助脚本（截图等）
+.tools/
