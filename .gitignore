@@ -1,0 +1,26 @@
+# 依赖与虚拟环境
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# 构建产物
+build/
+dist/
+Output/
+*.spec.bak
+
+# 运行期文件（含日志）
+*.log
+
+# 本地配置 / 凭证（正常情况下它们在 %APPDATA%\QuotaHUD\，这里再兜一层）
+stations.json
+credentials.json
+state.json
+*.bak
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,839 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>QuotaHUD</title>
+<style>
+/* ===== Apple Liquid Glass：透明窗口 + 系统Acrylic模糊桌面 · 半透白玻璃 · 克制光影 ===== */
+:root{
+  --glass-bg:rgba(255,255,255,.60);
+  --glass-bg-strong:rgba(255,255,255,.72);
+  --glass-border:rgba(255,255,255,.55);
+  --ink:#1d1d1f; --ink2:rgba(60,60,67,.62); --ink3:rgba(60,60,67,.34);
+  --pri:#0a84ff; --ok:#30b14f; --err:#e5484d; --warn:#e08700;
+  --r-lg:24px; --r-md:18px;
+  --ease-out:cubic-bezier(.22,1,.36,1);
+  --ease-spring:cubic-bezier(.34,1.4,.5,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:transparent;overflow:hidden}
+body{color:var(--ink);font:12.5px/1.45 -apple-system,"SF Pro Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;width:100%;height:100vh;margin:0;
+  -webkit-font-smoothing:antialiased;user-select:none}
+
+/* 玻璃通用材质：半透白 + 顶部高光内描边 + 细噪点 */
+.glass{
+  background:var(--glass-bg);
+  backdrop-filter:blur(24px) saturate(1.7);
+  -webkit-backdrop-filter:blur(24px) saturate(1.7);
+  border-radius:var(--r-lg);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.85),
+    inset 0 0 0 1px rgba(255,255,255,.38),
+    0 12px 40px rgba(0,0,0,.14),
+    0 2px 8px rgba(0,0,0,.06);
+  position:relative;
+}
+.glass::before{ /* 苹果式顶部高光弧线 */
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(168deg, rgba(255,255,255,.50) 0%, rgba(255,255,255,.12) 26%, rgba(255,255,255,0) 46%);
+}
+.glass::after{ /* 细噪点，让玻璃"真" */
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:.16;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+#fx{position:fixed;inset:0;pointer-events:none;z-index:99}
+
+/* ================= 迷你胶囊（收起=铺满56px窗口成为胶囊；展开=变为面板顶栏，永远可见可点） ================= */
+#pill{
+  position:fixed;top:0;left:0;right:0;height:56px;z-index:50;
+  display:flex;align-items:center;gap:9px;
+  padding:6px 12px 6px 9px;cursor:default;
+  border-radius:28px 28px 0 0;
+  transition:box-shadow .3s var(--ease-out),transform .3s var(--ease-out);
+}
+#pill:hover{transform:translateY(-1px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 0 0 1px rgba(255,255,255,.5),
+  0 16px 48px rgba(0,0,0,.18),0 3px 10px rgba(0,0,0,.07)}
+/* 展开态：胶囊变成面板顶栏——去玻璃背景，与面板融为一体，但保持可见可点 */
+body.expanded #pill{background:transparent!important;box-shadow:none!important;border-radius:0}
+body.expanded #pill::before,body.expanded #pill::after{display:none}
+body.expanded #pill:hover{transform:none;box-shadow:none}
+.pywebview-drag-region{position:absolute;inset:0;border-radius:var(--r-lg)}
+#pill>*:not(.pywebview-drag-region){position:relative}
+#pill .logo{width:27px;height:27px;border-radius:9px;flex:none;
+  background:linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,.18));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 0 0 .5px rgba(255,255,255,.5);
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .45s var(--ease-spring)}
+/* 环形进度仪表（logo 外圈） */
+.gaugewrap{position:relative;width:38px;height:38px;flex:none}
+.gauge{position:absolute;inset:0;width:38px;height:38px;transform:rotate(-90deg)}
+.gauge circle{fill:none;stroke-width:3;stroke-linecap:round}
+.gauge .g-track{stroke:rgba(29,29,31,.09)}
+.gauge .g-val{stroke:var(--pri);stroke-dasharray:119.4;stroke-dashoffset:119.4;transition:stroke-dashoffset .9s var(--ease-out),stroke .4s}
+.gauge .g-val.warn{stroke:var(--warn)}
+.gauge .g-val.hot{stroke:var(--err)}
+.gaugewrap .logo{position:absolute;inset:5px;width:28px;height:28px}
+#pill .who{flex:1;min-width:0;gap:0}
+#pill .who .nm{font-size:10px;font-weight:500;color:var(--ink2);letter-spacing:.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:0}
+#pill .who .val{font-size:16.5px;font-weight:700;letter-spacing:-.2px;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--ink)}
+.spark-wrap{height:11px;margin-top:1px;opacity:.75}
+.spark-wrap svg{width:100%;height:11px;display:block}
+.spark-wrap path{fill:none;stroke:rgba(29,29,31,.38);stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round}
+.spark-wrap path.hot{stroke:rgba(229,72,77,.55)}
+.spark-wrap circle{fill:rgba(229,72,77,.85)}
+/* 右列：变化徽章 + 用量条 */
+.rightcol{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex:none}
+.pctbar-wrap{display:flex;align-items:center;gap:5px}
+.pctbar{width:56px;height:3.5px;border-radius:2px;background:rgba(29,29,31,.10);overflow:hidden}
+.pctbar i{display:block;height:100%;border-radius:2px;background:var(--pri);width:0;transition:width .9s var(--ease-out),background .4s}
+.pctbar i.warn{background:var(--warn)}
+.pctbar i.hot{background:var(--err)}
+.pcttxt{font-size:9px;font-weight:600;color:var(--ink3);min-width:24px;font-variant-numeric:tabular-nums}
+#pill:hover .logo{transform:scale(1.05)}
+#pill .logo svg{width:15px;height:15px}
+#pill .who{flex:1;min-width:0}
+#pill .who .nm{font-size:10px;font-weight:500;color:var(--ink2);letter-spacing:.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:0}
+#pill .who .val{font-size:16.5px;font-weight:700;letter-spacing:-.2px;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--ink)}
+#pill .delta{font-size:10px;font-weight:600;border-radius:999px;padding:2px 8px;flex:none;font-variant-numeric:tabular-nums;
+  background:rgba(255,255,255,.42);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.55)}
+#pill .delta.down{color:var(--err)}
+#pill .delta.up{color:var(--ok)}
+#pill .delta.flat{color:var(--ink2)}
+#pill .delta.pop{animation:popIn .5s var(--ease-spring)}
+@keyframes popIn{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}
+#pill .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none;
+  box-shadow:0 0 0 3px rgba(48,177,79,.16);transition:.3s}
+#pill .dot.busy{background:var(--err);box-shadow:0 0 0 3px rgba(229,72,77,.18);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.45}}
+#pill .gear{width:27px;height:27px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:var(--ink2);
+  background:linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,.15));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.85),inset 0 0 0 .5px rgba(255,255,255,.5);
+  transition:.25s var(--ease-spring)}
+#pill .gear:hover{color:var(--ink);transform:rotate(60deg) scale(1.05)}
+#pill .gear.on{color:#fff;background:var(--pri);box-shadow:0 2px 10px rgba(10,132,255,.4)}
+
+/* 展开态顶栏细节：保留胶囊内容可见性 */
+body.expanded #pill .pywebview-drag-region{border-radius:0}
+
+/* 面板顶部拖动条 */
+.panel-top{display:flex;align-items:center;height:12px;margin-bottom:4px}
+.panel-top .dragzone{flex:1;height:100%}
+
+/* ================= 展开面板（胶囊顶栏之下，窗口其余部分就是一个圆角玻璃容器） ================= */
+#panel{
+  position:fixed;top:56px;left:0;right:0;bottom:0;transform:none;
+  width:100%;height:calc(100% - 56px);overflow-y:auto;overflow-x:hidden;
+  padding:10px 14px 16px;scrollbar-width:none;
+  background:transparent !important;   /* 不加自己的底板：系统玻璃层就是容器 */
+  opacity:0;pointer-events:none;visibility:hidden;
+  transition:opacity .32s var(--ease-out),transform .38s var(--ease-out),visibility 0s linear .38s;
+}
+#panel::-webkit-scrollbar{display:none}
+#panel.show{opacity:1;pointer-events:auto;visibility:visible;
+  transform:translateY(0);
+  transition:opacity .34s var(--ease-out),transform .42s var(--ease-out)}
+
+/* Hero：近7天 token 柱图 + 今日统计（白玻璃） */
+.hero{border-radius:var(--r-md);padding:15px 17px 12px;margin-bottom:10px}
+.hero .lbl{font-size:10px;font-weight:600;color:var(--ink2);letter-spacing:.6px}
+.hero .big{font-size:23px;font-weight:700;letter-spacing:-.4px;margin:2px 0 7px;color:var(--ink);font-variant-numeric:tabular-nums}
+.hero .row{display:flex;gap:18px;font-size:11px;color:var(--ink2)}
+.hero .row b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.hero .chip{position:absolute;right:15px;top:15px;font-size:10.5px;font-weight:600;border-radius:999px;padding:3px 11px;
+  color:var(--ink2);background:rgba(255,255,255,.45);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.6)}
+.hero .chip.busy{color:#fff;background:var(--err)}
+/* token 柱图 */
+.tokbar-wrap{height:64px;margin-top:10px;position:relative}
+.tokbar-wrap svg{width:100%;height:100%;display:block;overflow:visible}
+.tk-bar{cursor:pointer}
+.tk-bar rect.bg{fill:rgba(29,29,31,.07);rx:3}
+.tk-bar rect.fill{fill:var(--pri);rx:3;transition:height .5s var(--ease-out),y .5s var(--ease-out),fill .2s;transform:scaleY(0);transform-origin:bottom;animation:growBar .55s var(--ease-out) forwards}
+@keyframes growBar{to{transform:scaleY(1)}}
+.tk-bar:hover rect.fill,.tk-bar.sel rect.fill{fill:var(--acc)}
+.tk-hit{fill:transparent;cursor:pointer}
+.tokcap{display:flex;justify-content:space-between;font-size:9.5px;color:var(--ink3);margin-top:5px}
+/* 当日明细卡（默认隐藏，点柱子出现） */
+.daydetail{border-radius:var(--r-md);padding:12px 15px;margin-bottom:10px;display:none}
+.daydetail.show{display:block;animation:cardIn .3s var(--ease-out)}
+.dd-head{display:flex;align-items:center;gap:8px;font-size:12px}
+.dd-head .grow{flex:1}
+.dd-head span{font-size:11.5px;color:var(--ink)}
+.dd-body{display:flex;align-items:center;gap:14px;margin-top:8px}
+#dd-ring{width:74px;height:74px;flex:none}
+#dd-ring circle{fill:none;stroke-width:5}
+#dd-ring .seg{stroke-linecap:butt;transition:stroke-dasharray .5s var(--ease-out)}
+#dd-ring .hole{fill:rgba(255,255,255,.6)}
+.dd-legend{flex:1;display:flex;flex-direction:column;gap:4px}
+.dd-legend .li{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--ink2)}
+.dd-legend .sw{width:9px;height:9px;border-radius:3px;flex:none}
+.dd-legend .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dd-legend .pc{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.dd-legend .tk{font-size:10px;color:var(--ink3);font-variant-numeric:tabular-nums}
+
+/* 区块标题 */
+.sec{display:flex;align-items:center;margin:12px 6px 7px;font-size:10.5px;font-weight:600;color:var(--ink2);letter-spacing:.5px}
+.sec .grow{flex:1}
+.sec .link{color:var(--pri);font-weight:600;cursor:pointer}
+.sec .link:hover{opacity:.7}
+.sec .link.spin{display:inline-block;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 站点卡片 */
+.ch{
+  background:rgba(255,255,255,.42);
+  backdrop-filter:blur(18px) saturate(1.5);
+  -webkit-backdrop-filter:blur(18px) saturate(1.5);
+  border-radius:var(--r-md);padding:11px 13px;margin-bottom:8px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 0 0 .5px rgba(255,255,255,.4),0 2px 10px rgba(0,0,0,.05);
+  cursor:default;
+  transition:transform .22s var(--ease-out),box-shadow .22s var(--ease-out),background .2s;
+  animation:cardIn .4s var(--ease-out) backwards;
+}
+@keyframes cardIn{from{opacity:0;transform:translateY(10px) scale(.988)}to{opacity:1;transform:none}}
+.ch:hover{background:rgba(255,255,255,.58);transform:translateY(-1.5px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8),inset 0 0 0 .5px rgba(255,255,255,.55),0 10px 26px rgba(0,0,0,.10)}
+.ch .r1{display:flex;align-items:center;gap:10px}
+.ch .ic{width:33px;height:33px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;
+  font-size:12.5px;font-weight:700;color:#fff;
+  background:linear-gradient(180deg,rgba(255,255,255,.28),rgba(0,0,0,.06)),var(--tint,#0a84ff);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 1px 4px rgba(0,0,0,.12);
+  transition:transform .35s var(--ease-spring)}
+.ch:hover .ic{transform:scale(1.07)}
+.ch .name{font-weight:600;font-size:12.5px;color:var(--ink)}
+.ch .sub{font-size:10.5px;color:var(--ink2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch .sub .err{color:var(--err)}
+.ch .main{margin-left:auto;text-align:right}
+.ch .main .v{font-size:15.5px;font-weight:700;letter-spacing:-.2px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.ch .main .v.warn{color:var(--warn)}
+.ch .main .t{font-size:9.5px;color:var(--ink3)}
+.bar{height:3.5px;border-radius:2px;background:rgba(29,29,31,.08);margin-top:9px;overflow:hidden;position:relative}
+.bar i{display:block;height:100%;border-radius:2px;background:var(--pri);width:0;transition:width .9s var(--ease-out)}
+.bar i.warn{background:linear-gradient(90deg,#F5A623,#E08700)}
+
+.badge{font-size:9px;font-weight:600;color:var(--ink2);background:rgba(255,255,255,.5);
+  box-shadow:inset 0 0 0 .5px rgba(29,29,31,.07);padding:1px 7px;border-radius:999px;flex:none}
+.st{width:6.5px;height:6.5px;border-radius:50%;flex:none}
+.st.ok{background:var(--ok)}.st.warn{background:var(--warn)}.st.err{background:var(--err)}
+
+/* 趋势 */
+.trendbox{border-radius:var(--r-md);padding:11px 13px 8px}
+.trendbox svg{width:100%;height:50px;display:block}
+.trendbox rect{transform:scaleY(0);transform-origin:bottom;animation:growBar .55s var(--ease-out) forwards}
+@keyframes growBar{to{transform:scaleY(1)}}
+.trendbox .cap{display:flex;justify-content:space-between;font-size:9.5px;color:var(--ink3);margin-top:3px}
+
+/* 设置页 */
+#settings{display:none}
+#settings.show{display:block}
+.backrow{display:flex;align-items:center;gap:9px;margin-bottom:9px;padding:0 4px}
+.backrow .bk{width:29px;height:29px;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  background:rgba(255,255,255,.5);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.6);font-weight:700;transition:.2s var(--ease-spring)}
+.backrow .bk:hover{transform:translateX(-2px)}
+.backrow b{font-size:13.5px}
+.backrow .grow{flex:1}
+.autostart{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--ink2);cursor:pointer}
+.strow{
+  background:rgba(255,255,255,.42);backdrop-filter:blur(18px) saturate(1.5);-webkit-backdrop-filter:blur(18px) saturate(1.5);
+  border-radius:var(--r-md);padding:11px 13px;margin-bottom:8px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 0 0 .5px rgba(255,255,255,.4),0 2px 10px rgba(0,0,0,.05);
+  animation:cardIn .35s var(--ease-out) backwards}
+.strow .h{display:flex;align-items:center;gap:8px}
+.strow .h b{font-size:12.5px}
+.strow .h .grow{flex:1}
+.strow .d{font-size:10px;color:var(--ink3);margin:2px 0 7px}
+.strow input,.strow select{width:100%;background:rgba(255,255,255,.55);border:none;color:var(--ink);border-radius:11px;padding:7px 11px;font:12px sans-serif;margin:3px 0;
+  box-shadow:inset 0 0 0 .5px rgba(29,29,31,.08);transition:.15s}
+.strow input:focus,.strow select:focus{outline:none;box-shadow:inset 0 0 0 1.5px var(--pri)}
+.strow input::placeholder{color:var(--ink3)}
+.strow button{border:none;background:rgba(255,255,255,.55);color:var(--ink);border-radius:11px;padding:5px 12px;font:11.5px/1 sans-serif;font-weight:600;cursor:pointer;
+  box-shadow:inset 0 0 0 .5px rgba(29,29,31,.08);transition:.15s}
+.strow button:hover{background:#fff}
+.strow button.pri{background:var(--pri);color:#fff;box-shadow:0 2px 10px rgba(10,132,255,.35)}
+.btnrow{display:flex;gap:8px;margin:12px 2px}
+.btnrow button{flex:1;border:none;border-radius:14px;padding:9.5px;font:12.5px/1 sans-serif;font-weight:600;cursor:pointer;color:var(--ink);
+  background:var(--glass-bg-strong);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8),inset 0 0 0 .5px rgba(255,255,255,.5),0 4px 16px rgba(0,0,0,.08);
+  transition:.2s var(--ease-spring)}
+.btnrow button:hover{transform:translateY(-1.5px)}
+.btnrow button:active{transform:translateY(0) scale(.98)}
+.btnrow button.pri{background:var(--pri);color:#fff}
+#addbox{display:none;border-radius:var(--r-md);padding:12px 14px;margin-bottom:8px;
+  background:rgba(255,255,255,.42);backdrop-filter:blur(18px) saturate(1.5);-webkit-backdrop-filter:blur(18px) saturate(1.5);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.65),inset 0 0 0 .5px rgba(255,255,255,.4);
+  animation:cardIn .3s var(--ease-out)}
+#addbox.show{display:block}
+#addbox input,#addbox select{width:100%;background:rgba(255,255,255,.55);border:none;color:var(--ink);border-radius:11px;padding:7px 11px;font:12px sans-serif;margin:3px 0;
+  box-shadow:inset 0 0 0 .5px rgba(29,29,31,.08)}
+.tog{width:38px;height:22px;border-radius:999px;background:rgba(29,29,31,.16);position:relative;cursor:pointer;flex:none;transition:.25s}
+.tog i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.25s var(--ease-spring);box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.tog.on{background:var(--ok)}.tog.on i{left:18px}
+.toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%) translateY(8px);
+  color:var(--ink);font-size:12px;font-weight:500;padding:8px 17px;border-radius:999px;
+  background:rgba(255,255,255,.75);backdrop-filter:blur(24px) saturate(1.7);-webkit-backdrop-filter:blur(24px) saturate(1.7);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 0 0 .5px rgba(255,255,255,.55),0 8px 28px rgba(0,0,0,.16);
+  opacity:0;transition:.25s var(--ease-out);z-index:100;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.credhint{font-size:10.5px;color:var(--ink2);margin:4px 4px 8px}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<canvas id="fx"></canvas>
+
+<!-- 迷你胶囊 -->
+<div id="pill" class="glass">
+  <div class="pywebview-drag-region"></div>
+  <div class="gaugewrap">
+    <svg class="gauge" viewBox="0 0 44 44">
+      <circle class="g-track" cx="22" cy="22" r="19"/>
+      <circle class="g-val" id="g-val" cx="22" cy="22" r="19"/>
+    </svg>
+    <div class="logo"><svg viewBox="0 0 24 24" fill="none"><path d="M4 10h16M6 10V19M10 10V19M14 10V19M18 10V19M3 19h18M12 3L3 8h18L12 3z" stroke="#1d1d1f" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+  </div>
+  <div class="who">
+    <div class="nm" id="p-nm">加载中…</div>
+    <div class="val" id="p-val">—</div>
+    <div class="spark-wrap"><svg id="spark" preserveAspectRatio="none"></svg></div>
+  </div>
+  <div class="rightcol">
+    <span class="delta flat" id="p-delta">—</span>
+    <div class="pctbar-wrap"><div class="pctbar" id="p-pctbar"><i id="p-pctfill"></i></div><span class="pcttxt" id="p-pcttxt"></span></div>
+  </div>
+  <span class="dot" id="p-dot"></span>
+  <div class="gear" id="p-gear" title="设置">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 110-4h.09A1.65 1.65 0 003.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H8a1.65 1.65 0 001-1.51V2a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V8a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="2"/></svg>
+  </div>
+</div>
+
+<!-- 展开面板 -->
+<div id="panel">
+  <div class="panel-top">
+    <div class="pywebview-drag-region dragzone"></div>
+  </div>
+  <div id="main">
+    <div class="hero glass">
+      <span class="chip" id="hero-chip">空闲</span>
+      <div class="lbl">近 7 天 TOKEN 消耗 · 全设备口径 · 点击柱子看各站占比</div>
+      <div class="big" id="h-cost">—</div>
+      <div class="row">
+        <span>今日 <b id="h-tok">—</b> tok</span>
+        <span>请求 <b id="h-req">—</b></span>
+        <span>RPM <b id="h-rpm">—</b></span>
+      </div>
+      <div class="tokbar-wrap">
+        <svg id="tsvg" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="tokcap"><span id="t0"></span><span id="tmid"></span><span id="t1"></span></div>
+    </div>
+    <div class="daydetail glass" id="daydetail">
+      <div class="dd-head"><b id="dd-date">—</b><span class="grow"></span><span id="dd-total" style="font-weight:700"></span></div>
+      <div class="dd-body">
+        <svg id="dd-ring" viewBox="0 0 42 42"></svg>
+        <div class="dd-legend" id="dd-legend"></div>
+      </div>
+    </div>
+
+    <div class="sec">渠道额度 <span class="grow"></span><span class="link" id="refresh-all">↻ 刷新</span></div>
+    <div id="chs"></div>
+  </div>
+
+  <div id="settings">
+    <div class="backrow"><span class="bk" id="bk">←</span><b>站点与凭证</b><span class="grow"></span>
+      <label class="autostart" id="autostart-row"><span class="tog" id="autostart-tog"><i></i></span>开机自启</label>
+    </div>
+    <div class="credhint">凭证只存本机 %APPDATA%\QuotaHUD · new-api 系站点：网址 + Cookie + 用户ID 即可</div>
+    <div id="stlist"></div>
+    <div class="btnrow">
+      <button onclick="document.getElementById('addbox').classList.toggle('show')">＋ 新增站点</button>
+      <button class="pri" onclick="refreshAll()">↻ 刷新全部</button>
+    </div>
+    <div id="addbox">
+      <input id="add-name" placeholder="名称，如：某某中转站">
+      <select id="add-type">
+        <option value="newapi">new-api 系（cookie+用户ID）</option>
+        <option value="deepseek">DeepSeek 官方（API Key）</option>
+        <option value="bigmodel">智谱 bigmodel（JWT token）</option>
+        <option value="newapi_refresh">new-api 改版·refresh（令牌裸值）</option>
+        <option value="sub2">sub2 网关（Bearer token）</option>
+        <option value="volc_agent">火山 Agent Plan（浏览器cookie）</option>
+        <option value="volc_coding">火山 Coding Plan（浏览器cookie）</option>
+        <option value="bearer_generic">通用 Bearer 自定义</option>
+      </select>
+      <input id="add-url" placeholder="站点网址，如 https://xxx.com">
+      <input id="add-warn" placeholder="告警阈值 %（默认20）" value="20">
+      <button class="pri" style="width:100%;margin-top:5px;border:none;border-radius:11px;padding:8px;font:600 12px sans-serif;color:#fff;background:var(--pri);cursor:pointer" onclick="addStation()">添加</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+const $ = s => document.querySelector(s);
+const TYPE_LABEL = {newapi:'new-api', newapi_refresh:'new-api改版', bigmodel:'智谱', volc_agent:'火山Agent', volc_coding:'火山Coding', sub2:'sub2网关', deepseek:'DeepSeek', bearer_generic:'自定义'};
+const TINTS = ['#0a84ff','#5e5ce6','#e5484d','#e08700','#30b14f','#6e6d80','#d6409f','#8e8e93'];
+let STATE = null, ST = null, CREDS = {}, SETTINGS = false;
+let lastPillVal = null, lastHeroCost = null;
+
+function toast(t){ const el=$('#toast'); el.textContent=t; el.classList.add('show'); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2200); }
+function fmtK(n){ n=+n||0; return n>=1e8?(n/1e8).toFixed(2)+'亿':n>=1e4?(n/1e4).toFixed(0)+'万':n>=1e3?(n/1e3).toFixed(1)+'k':''+Math.round(n); }
+function ago(s){ if(s==null)return ''; s=Math.round(s); if(s<60)return s+'秒前'; if(s<3600)return Math.round(s/60)+'分钟前'; return (s/3600).toFixed(1)+'h前'; }
+function fmtDelta(d){
+  const abs = Math.abs(d);
+  const sign = d <= 0 ? '▼ ' : '▲ ';
+  if(abs >= 1e8) return sign + (abs/1e8).toFixed(1) + '亿';
+  if(abs >= 1e4) return sign + (abs/1e4).toFixed(1) + '万';
+  if(abs >= 1000) return sign + Math.round(abs).toLocaleString('en-US');
+  return sign + abs.toFixed(2);
+}
+async function api(p, opt){ const r = await fetch(p, opt); return r.json(); }
+
+function rollNumber(el, from, to, fmt, dur=650){
+  if(from == null || isNaN(from)){ el.textContent = fmt(to); return; }
+  const t0 = performance.now();
+  function step(t){
+    const k = Math.min(1, (t - t0) / dur);
+    const e = 1 - Math.pow(1 - k, 3);
+    el.textContent = fmt(from + (to - from) * e);
+    if(k < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+/* 粒子（低调玻璃碎光，白/透明为主） */
+const cvs = $('#fx'), ctx = cvs.getContext('2d');
+const PALETTE = ['rgba(255,255,255,.95)','rgba(255,255,255,.65)','rgba(10,132,255,.55)','rgba(94,92,230,.45)'];
+let parts = [], raf = null;
+function fitCanvas(){ cvs.width = innerWidth; cvs.height = innerHeight; }
+fitCanvas(); addEventListener('resize', fitCanvas);
+function burst(x, y, n=20, power=1){
+  for(let i=0;i<n;i++){
+    const a = Math.random()*Math.PI*2, v = (Math.random()*2+0.7)*power;
+    parts.push({x, y, vx:Math.cos(a)*v, vy:Math.sin(a)*v - 0.5, life:1, decay:Math.random()*0.022+0.017,
+                r:Math.random()*2.6+1.1, c:PALETTE[Math.random()*PALETTE.length|0], rot:Math.random()*Math.PI, vr:(Math.random()-.5)*.18});
+  }
+  if(!raf) raf = requestAnimationFrame(tick);
+}
+function tick(){
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  parts = parts.filter(p => p.life > 0);
+  for(const p of parts){
+    p.x += p.vx; p.y += p.vy; p.vy += 0.045; p.vx *= 0.986; p.life -= p.decay; p.rot += p.vr;
+    ctx.save(); ctx.globalAlpha = Math.max(0, p.life); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.fillStyle = p.c; ctx.fillRect(-p.r, -p.r*0.55, p.r*2, p.r*1.1);
+    ctx.restore();
+  }
+  if(parts.length){ raf = requestAnimationFrame(tick); } else { raf = null; ctx.clearRect(0,0,cvs.width,cvs.height); }
+}
+function burstFrom(el, n=18, power=0.9){
+  const r = el.getBoundingClientRect();
+  burst(r.left + r.width/2, r.top + r.height/2, n, power);
+}
+
+async function loadAll(){
+  const [st, meta] = await Promise.all([api('/api/state'), api('/api/stations')]);
+  STATE = st; ST = meta.stations; CREDS = meta.cred_keys;
+  render();
+}
+
+function renderPill(){
+  const lc = (STATE && STATE.last_change) || null;
+  const L = (STATE && STATE.local) || {};
+  let nm = '等待第一次余额变化…', val = '—', delta = '—', dcls = 'flat', changed = false;
+  let pct = null, trend = TREND().map(x => ({date:x.date, cost:0, tokens:x.tokens}));
+  let meta = null, cur = null;
+  if(lc){
+    meta = (ST || []).find(s => s.id === lc.sid);
+    cur = STATE.stations ? STATE.stations[lc.sid] : null;
+    nm = lc.name + ' · ' + (lc.up ? '余额增加' : '余额消耗');
+    val = lc.main || '—';
+    if(lastPillVal != null && lastPillVal !== val) changed = true;
+    const d = lc.num - lc.prev;
+    delta = fmtDelta(d);
+    dcls = d<=0 ? 'down' : 'up';
+    pct = cur ? cur.pct : null;
+  } else if(STATE && STATE.updated_at){
+    nm = '今日消耗 · 暂无余额变动';
+    val = '$' + (L.today_cost!=null ? L.today_cost.toFixed(2) : '0.00');
+    delta = fmtK(L.today_requests||0) + ' 次';
+  }
+  $('#p-nm').textContent = nm;
+  const pval = $('#p-val');
+  if(changed){
+    pval.style.animation='none'; void pval.offsetWidth;
+    pval.style.animation = (lc?.up ? 'flashUp .8s var(--ease-out)' : 'flashDown .8s var(--ease-out)');
+    const de = $('#p-delta'); de.classList.remove('pop'); void de.offsetWidth; de.classList.add('pop');
+    burstFrom(pval, 16, 0.8);
+  }
+  pval.textContent = val;
+  lastPillVal = val;
+  const de = $('#p-delta'); de.textContent = delta; de.className = 'delta ' + dcls;
+  $('#p-dot').className = 'dot' + ((L.rpm||0) > 0 ? ' busy' : '');
+  // ===== 图形化：环形仪表（该站用量%）=====
+  const gv = $('#g-val');
+  const C = 119.4;
+  if(pct != null){
+    const clamped = Math.max(0, Math.min(100, pct));
+    gv.style.strokeDashoffset = C * (1 - clamped/100);
+    gv.classList.toggle('warn', clamped >= 50 && clamped < 80);
+    gv.classList.toggle('hot', clamped >= 80);
+    const fill = $('#p-pctfill');
+    fill.style.width = clamped + '%';
+    fill.className = clamped >= 80 ? 'hot' : (clamped >= 50 ? 'warn' : '');
+    $('#p-pcttxt').textContent = Math.round(clamped) + '%';
+  } else {
+    gv.style.strokeDashoffset = C * 0.97;   // 无百分比数据时画个满圈底
+    gv.classList.remove('warn','hot');
+    $('#p-pctfill').style.width = '0%';
+    $('#p-pcttxt').textContent = '';
+  }
+  // ===== 图形化：14 天消耗火花线 =====
+  const spark = $('#spark');
+  if(trend.length >= 3){
+    const mx = Math.max(...trend.map(x=>x.cost), 0.01);
+    const W = 130, H = 11;
+    const pts = trend.map((x,i)=>[(i/(trend.length-1))*W, H - Math.max(1, x.cost/mx*(H-1))]);
+    const d = pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+    const lastPt = pts[pts.length-1];
+    const hot = trend[trend.length-1].cost >= mx*0.7;
+    spark.innerHTML = `<path class="${hot?'hot':''}" d="${d}"/>` +
+      (hot ? `<circle cx="${lastPt[0].toFixed(1)}" cy="${lastPt[1].toFixed(1)}" r="1.8"/>` : '');
+  } else spark.innerHTML = '';
+}
+/* flash 动画（克制的单色闪） */
+const st = document.createElement('style');
+st.textContent = '@keyframes flashUp{0%{color:var(--ok);opacity:0;transform:translateY(2px)}35%{opacity:1;transform:none}100%{color:inherit}}@keyframes flashDown{0%{color:var(--err);opacity:0;transform:translateY(-2px)}35%{opacity:1;transform:none}100%{color:inherit}}';
+document.head.appendChild(st);
+
+/* ===== 渲染（签名比对：数据没变绝不重建 DOM —— 根治周期性闪烁） ===== */
+let lastSig = '';
+function TREND(){
+  if(STATE && STATE.trend7 && STATE.trend7.length) return STATE.trend7;
+  const L = (STATE && STATE.local) || {};
+  const bp = L.trend7_by_provider || {};
+  return (L.trend7_tokens || []).map(x => ({date:x.date, tokens:x.tokens, by: bp[x.date]||{}, source:'local'}));
+}
+function TREND_BYPROV(){
+  const m = {}; TREND().forEach(x => m[x.date] = x.by || {}); return m;
+}
+function TODAY_TOKENS(){
+  const t = TREND();
+  if(t.length) return t[t.length-1].tokens;
+  return ((STATE && STATE.local) || {}).today_tokens ?? null;
+}
+function computeSig(){
+  const parts = [];
+  for(const [sid,c] of Object.entries(STATE.stations||{}))
+    parts.push(sid+':'+(c.main||'')+':'+(c.ok?1:0)+':'+(c.ts||0));
+  const L = STATE.local||{};
+  parts.push('L:'+(L.today_cost??'')+':'+(L.today_requests??'')+':'+(L.rpm??''));
+  parts.push('T:'+TREND().map(x=>Math.round(x.tokens)).join(','));
+  return parts.join('|');
+}
+function render(){
+  if(!STATE) return;
+  renderPill();
+  const sig = computeSig();
+  if(sig === lastSig) return;   // ★ 数据没变：什么都不动
+  lastSig = sig;
+  const L = STATE.local || {};
+  const hc = $('#h-cost');
+  const newCost = L.today_cost ?? 0;
+  const TT = TODAY_TOKENS();
+  const tokStr = TT!=null ? fmtK(TT)+' tok' : '—';
+  // Hero 大字 = 今日 token 消耗（用原始数值驱动滚动动画，避免从格式化文本反解）
+  {
+    const rawNow = TT != null ? TT : 0;
+    const rawPrev = hc.dataset.raw != null ? parseFloat(hc.dataset.raw) : null;
+    if(rawPrev !== rawNow){
+      if(rawPrev != null && !isNaN(rawPrev)) rollNumber(hc, rawPrev, rawNow, v => fmtK(v) + ' tok');
+      else hc.textContent = tokStr;
+      hc.dataset.raw = String(rawNow);
+    }
+    hc.dataset.v = tokStr;
+  }
+  $('#h-tok').textContent = TT!=null ? fmtK(TT) : '—';
+  $('#h-req').textContent = L.today_requests ?? '—';
+  $('#h-rpm').textContent = L.rpm ?? 0;
+  const chip = $('#hero-chip');
+  if((L.rpm||0) > 0){ chip.textContent = '● 使用中 ' + L.rpm + ' req/min'; chip.className = 'chip busy'; }
+  else { chip.textContent = '○ 空闲 ' + (L.last_req_ago!=null?ago(L.last_req_ago):''); chip.className = 'chip'; }
+
+  const box = $('#chs');
+  const entries = Object.entries(STATE.stations || {});
+  entries.forEach(([sid, c], idx) => {
+    const meta = ST.find(s=>s.id===sid) || {};
+    const pct = c.pct;
+    let row = box.querySelector(`[data-sid="${sid}"]`);
+    const vHtml = c.ok ? c.main : '不可用';
+    if(!row){
+      row = document.createElement('div');
+      row.className = 'ch'; row.dataset.sid = sid;
+      row.style.animationDelay = (idx*0.05)+'s';
+      const tint = TINTS[idx % TINTS.length];
+      row.innerHTML = `<div class="r1">
+        <div class="ic" style="--tint:${tint}">${(c.name||sid).slice(0,1).toUpperCase()}</div>
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:6px"><span class="name">${c.name||sid}</span><span class="badge">${TYPE_LABEL[meta.type]||''}</span></div>
+          <div class="sub"></div>
+        </div>
+        <div class="main"><div class="v"></div><div class="t"></div></div>
+      </div>
+      <div class="bar"><i></i></div>`;
+      row.onclick = () => refreshOne(sid);
+      box.appendChild(row);
+    }
+    // 数字滚动：仅当值文本变化
+    const vEl = row.querySelector('.main .v');
+    const oldTxt = vEl.dataset.v || '';
+    if(oldTxt !== vHtml){
+      const om = oldTxt.match(/[\d.,]+/), nm2 = vHtml.match(/[\d.,]+/);
+      const oldWarn = vEl.classList.contains('warn');
+      if(om && nm2 && oldTxt && oldTxt.replace(om[0],'') === vHtml.replace(nm2[0],'') && !isNaN(parseFloat(om[0].replace(/,/g,'')))){
+        const from = parseFloat(om[0].replace(/,/g,'')), to = parseFloat(nm2[0].replace(/,/g,''));
+        const prefix = vHtml.slice(0, nm2.index), suffix = vHtml.slice(nm2.index + nm2[0].length);
+        const keepComma = nm2[0].includes(',');
+        rollNumber(vEl, from, to, v => prefix + (keepComma ? Math.round(v).toLocaleString('en-US') : (Math.abs(to) < 100 ? v.toFixed(2) : String(Math.round(v)))) + suffix, 700);
+      } else {
+        vEl.textContent = vHtml;
+      }
+      vEl.dataset.v = vHtml;
+      vEl.classList.toggle('warn', !!(c.ok && pct!=null && pct >= (c.warn_pct||80)));
+      if(oldTxt !== ''){ vEl.classList.remove('tick'); void vEl.offsetWidth; vEl.classList.add('tick'); }
+    }
+    const subEl = row.querySelector('.sub');
+    const subTxt = c.ok ? (c.sub||'') : (c.err||'').slice(0,52);
+    if(subEl.dataset.v !== subTxt){
+      subEl.dataset.v = subTxt;
+      subEl.innerHTML = c.ok ? subTxt : `<span class="err">${subTxt}</span>`;
+    }
+    const tEl = row.querySelector('.main .t');
+    if(tEl.dataset.raw !== String(c.ts||'')){
+      tEl.dataset.raw = String(c.ts||'');
+      tEl.textContent = c.ok&&c.ts ? ago(Date.now()/1000 - c.ts) : '';
+    }
+    const bar = row.querySelector('.bar i');
+    if(pct != null){
+      bar.style.width = Math.min(100,pct) + '%';
+      bar.className = pct >= (c.warn_pct||80) ? 'warn' : '';
+    }
+  });
+  box.querySelectorAll('.ch').forEach(el => { if(!STATE.stations[el.dataset.sid]) el.remove(); });
+
+  /* ===== 近 7 天 token 柱图 + 点击看当日各站占比（服务器口径 = 全设备含另一台电脑）===== */
+  const tr = TREND();
+  const byProv = TREND_BYPROV();
+  if(tr.length){
+    const sk = tr.map(x=>Math.round(x.tokens)).join(',');
+    if($('#tsvg').dataset.sig !== sk || !$('#tsvg').dataset.built){
+      $('#tsvg').dataset.sig = sk;
+      $('#tsvg').dataset.built = '1';
+      const W = 340, H = 64, GAP = 10;
+      $('#tsvg').setAttribute('viewBox', `0 0 ${W} ${H}`);
+      const mx = Math.max(...tr.map(x=>x.tokens), 1);
+      const bw = (W - GAP*(tr.length-1)) / tr.length;
+      let html = '';
+      tr.forEach((x,i)=>{
+        const x0 = i*(bw+GAP), bh = Math.max(3, x.tokens/mx*(H-4));
+        html += `<g class="tk-bar" data-i="${i}">
+          <rect class="bg" x="${x0}" y="0" width="${bw}" height="${H}"/>
+          <rect class="fill" x="${x0}" y="${(H-bh).toFixed(1)}" width="${bw}" height="${bh.toFixed(1)}" style="animation-delay:${i*45}ms"/>
+          <rect class="tk-hit" x="${x0-GAP/2}" y="0" width="${bw+GAP}" height="${H+8}"/>
+        </g>`;
+      });
+      $('#tsvg').innerHTML = html;
+      $('#t0').textContent = tr[0].date.slice(5);
+      $('#tmid').textContent = tr[3].date.slice(5);
+      $('#t1').textContent = '今天 ' + fmtK(tr[tr.length-1].tokens);
+      // 交互：悬浮高亮 + 点击选中
+      $('#tsvg').querySelectorAll('.tk-bar').forEach(g => {
+        g.addEventListener('mouseenter', () => showDay(+g.dataset.i, false));
+        g.addEventListener('click', () => showDay(+g.dataset.i, true));
+      });
+      showDay(tr.length-1, false);   // 默认显示今天
+    }
+  }
+}
+
+/* 当日各站 token 占比：环形图 + 图例 */
+const DAY_COLORS = ['#0a84ff','#5e5ce6','#e5484d','#e08700','#30b14f','#d6409f','#6e6d80','#9a6ae8'];
+let selectedDay = null;
+function showDay(i, pin){
+  const tr = TREND();
+  const byProv = TREND_BYPROV();
+  if(!tr[i]) return;
+  if(pin) selectedDay = i;
+  if(selectedDay != null && !pin && i !== selectedDay) {
+    // 有固定选中日时，悬浮只临时显示（简单起见仍显示悬浮日）
+  }
+  const day = tr[i];
+  const provs = byProv[day.date] || {};
+  const entries = Object.entries(provs).sort((a,b)=>b[1]-a[1]);
+  const total = day.tokens || 1;
+  $('#daydetail').classList.add('show');
+  $('#dd-date').textContent = (i === tr.length-1 ? '今天' : day.date.slice(5).replace('-','/')) + ' token 消耗';
+  $('#dd-total').textContent = fmtK(day.tokens) + ' tok';
+  // 环形
+  const C = 2 * Math.PI * 16.5;
+  let off = 0, segs = '', legend = '';
+  entries.forEach(([name, tk], idx) => {
+    const frac = tk / total;
+    const col = DAY_COLORS[idx % DAY_COLORS.length];
+    segs += `<circle class="seg" cx="21" cy="21" r="16.5" stroke="${col}"
+      stroke-dasharray="${(frac*C).toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-off*C).toFixed(2)}"/>`;
+    off += frac;
+    legend += `<div class="li"><span class="sw" style="background:${col}"></span>
+      <span class="nm">${name}</span><span class="pc">${(frac*100).toFixed(0)}%</span><span class="tk">${fmtK(tk)}</span></div>`;
+  });
+  if(!entries.length) legend = '<div class="li" style="color:var(--ink3)">该日无本地记录（未经 cc-switch 的调用不统计）</div>';
+  $('#dd-ring').innerHTML = `<circle cx="21" cy="21" r="19" class="hole"/>` + segs;
+  $('#dd-legend').innerHTML = legend;
+}
+/* 时间标签轻量刷新（不动其他 DOM） */
+setInterval(() => {
+  if(!STATE) return;
+  document.querySelectorAll('#chs .ch').forEach(row => {
+    const c = STATE.stations?.[row.dataset.sid];
+    const t = row.querySelector('.main .t');
+    if(c?.ok && c.ts && t) t.textContent = ago(Date.now()/1000 - c.ts);
+  });
+}, 30000);
+
+let hideTimer;
+const pill = $('#pill'), panel = $('#panel');
+function pyResize(expanded){
+  try { window.pywebview && window.pywebview.api && window.pywebview.api.resize_panel(expanded); } catch(e){}
+}
+/* 点击胶囊切换（悬停不触发；拖动结束不触发——只有原地点击才下拉） */
+let downScreen = null;
+pill.addEventListener('mousedown', () => {
+  downScreen = [window.screenX, window.screenY];
+});
+pill.addEventListener('click', (e) => {
+  if (e.target.closest('#p-gear')) return;   // 齿轮有自己的点击
+  // 拖动判定：按下到松开之间窗口屏幕坐标变了 → 这次是拖动，不是点击
+  if (downScreen && (Math.abs(window.screenX - downScreen[0]) > 4 || Math.abs(window.screenY - downScreen[1]) > 4)) {
+    downScreen = null;
+    return;
+  }
+  downScreen = null;
+  togglePanel();
+});
+function togglePanel(){
+  if(panel.classList.contains('show')){
+    panel.classList.remove('show');
+    document.body.classList.remove('expanded');
+    setTimeout(() => pyResize(false), 320);
+  } else {
+    document.body.classList.add('expanded');   // 先隐藏胶囊（避免大椭圆）
+    pyResize(true);
+    setTimeout(() => { panel.classList.add('show'); burstFrom(pill, 12, 0.6); }, 60);
+  }
+}
+$('#p-collapse')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if(panel.classList.contains('show')) togglePanel();
+});
+
+const CRED_FIELDS = {
+  newapi: [['cookie','Cookie 整串'],['user_id','用户ID'],['quota_per_unit','quota_per_unit（默认500000）']],
+  newapi_refresh: [['cookie','令牌裸值或完整 Cookie 均可'],['quota_per_unit','quota_per_unit（默认500000）']],
+  bigmodel: [['token','bigmodel_token_production 值'],['cookie','（可选）其他 cookie']],
+  volc_agent: [['cookie','console.volcengine.com 的 Cookie 整串']],
+  volc_coding: [['cookie','console.volcengine.com 的 Cookie 整串']],
+  sub2: [['token','auth_token 裸值']],
+  deepseek: [['key','API Key（sk-…）']],
+  bearer_generic: [['key','Bearer Key'],['query_url','完整查询URL'],['value_path','取值路径 data.balance'],['unit_prefix','单位前缀 $']],
+};
+function renderSettings(){
+  const box = $('#stlist');
+  const focusEl = document.activeElement;
+  const focusKey = focusEl && focusEl.dataset ? (focusEl.dataset.st + ':' + focusEl.dataset.k) : null;
+  const focusPos = focusEl ? focusEl.selectionStart : null;
+  box.innerHTML='';
+  for(const s of ST){
+    const d = document.createElement('div'); d.className='strow';
+    const stat = STATE?.stations?.[s.id];
+    const fields = (CRED_FIELDS[s.type]||[]).map(([k,label])=>{
+      const has = (CREDS[s.id]||[]).includes(k);
+      return `<input data-st="${s.id}" data-k="${k}" placeholder="${label}${has?'（已保存，留空保持）':''}">`;
+    }).join('');
+    d.innerHTML = `<div class="h"><span class="st ${stat?.ok?'ok':(stat?'err':'')}"></span><b>${s.name}</b>
+      <span class="badge">${TYPE_LABEL[s.type]||s.type}</span><span class="grow"></span>
+      <div class="tog ${s.enabled!==false?'on':''}" onclick="togSt('${s.id}',this)"><i></i></div>
+      <button onclick="delSt('${s.id}')">删除</button></div>
+      <div class="d">${s.url}</div>
+      ${fields}
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button class="pri" onclick="saveCreds('${s.id}')">保存凭证</button>
+        <button onclick="testSt('${s.id}')">测试</button>
+        <button onclick="refreshOne('${s.id}')">刷新</button>
+      </div>`;
+    box.appendChild(d);
+  }
+  // 恢复焦点位置（避免轮询重建打断输入）
+  if(focusKey){
+    const el = box.querySelector(`input[data-st="${focusKey.split(':')[0]}"][data-k="${focusKey.split(':')[1]}"]`);
+    if(el){ el.focus(); try{ el.setSelectionRange(focusPos, focusPos); }catch(e){} }
+  }
+}
+async function togSt(id, el){
+  const s = ST.find(x=>x.id===id); s.enabled = s.enabled===false ? true : false;
+  el.classList.toggle('on', s.enabled!==false);
+  await api('/api/stations', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(s)});
+}
+async function delSt(id){ if(!confirm('删除站点 '+id+'？'))return; await api('/api/stations/'+id,{method:'DELETE'}); await loadAll(); renderSettings(); }
+async function saveCreds(id){
+  const body = {};
+  document.querySelectorAll(`input[data-st="${id}"]`).forEach(inp=>{
+    if(inp.value && !inp.value.includes('已保存')) body[inp.dataset.k] = inp.value;
+  });
+  if(!Object.keys(body).length){ toast('没有新输入的凭证'); return; }
+  await api('/api/creds/'+id, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  toast('已保存，测试中…');
+  const r = await api('/api/test/'+id, {method:'POST'});
+  toast(r.ok ? ('✓ 成功: '+r.main) : ('✗ '+r.err));
+  await loadAll();
+  renderSettings();
+}
+async function testSt(id){ toast('测试中…'); const r = await api('/api/test/'+id,{method:'POST'}); toast(r.ok?('✓ '+r.main+' · '+(r.sub||'')):('✗ '+r.err)); }
+async function refreshOne(sid){ toast('查询 '+sid+' …'); await api('/api/test/'+sid,{method:'POST'}); await api('/api/refresh',{method:'POST'}); await loadAll(); }
+async function refreshAll(){
+  const link = $('#refresh-all'); link.classList.add('spin');
+  await api('/api/refresh',{method:'POST'}); await loadAll();
+  link.classList.remove('spin');
+  toast('已刷新 ✓');
+}
+async function addStation(){
+  const name=$('#add-name').value.trim(), type=$('#add-type').value, url=$('#add-url').value.trim(), warn=+$('#add-warn').value||20;
+  if(!name||!url){ toast('名称和网址必填'); return; }
+  await api('/api/stations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'st_'+Date.now().toString(36),name,type,url,enabled:true,warn_pct:warn})});
+  $('#add-name').value=''; $('#add-url').value='';
+  await loadAll(); renderSettings(); toast('已添加，请在下方卡片里填凭证');
+}
+$('#refresh-all').onclick = refreshAll;
+$('#p-gear').addEventListener('click', e => {
+  e.stopPropagation();
+  SETTINGS = !SETTINGS;
+  $('#settings').classList.toggle('show', SETTINGS);
+  $('#main').classList.toggle('hide', SETTINGS);
+  $('#p-gear').classList.toggle('on', SETTINGS);
+  if(SETTINGS){
+    if(!panel.classList.contains('show')) togglePanel();
+    loadAll().then(renderSettings);   // 打开时渲染一次
+  }
+});
+$('#bk').onclick = () => { SETTINGS=false; $('#settings').classList.remove('show'); $('#main').classList.remove('hide'); $('#p-gear').classList.remove('on'); };
+$('#autostart-tog').addEventListener('click', function(){
+  this.classList.toggle('on');
+  try { window.pywebview && window.pywebview.api && window.pywebview.api.set_autostart(this.classList.contains('on')); } catch(e){}
+  toast(this.classList.contains('on') ? '已开启开机自启' : '已关闭开机自启');
+});
+
+loadAll();
+setInterval(loadAll, 5000);
+</script>
+</body>
+</html>
