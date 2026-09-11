@@ -35,11 +35,19 @@ token 消耗**聚合到一个**液态玻璃悬浮窗**里，不用再一个个�
 
 ## 安装（用户）
 
-双击 `QuotaHUD-Setup-1.0.0.exe`：
+从 [Releases](https://github.com/AXXXt/quota-hud/releases/latest) 下载，两种方式任选：
 
-- 默认装到 `%LOCALAPPDATA%\QuotaHUD`（**免管理员**）
-- 可勾选「开机自动启动」（带 `--no-window` 静默起）
-- 安装完成即启动，悬浮窗置顶显示
+| 方式 | 文件 | 特点 |
+|---|---|---|
+| **安装版（推荐）** | `QuotaHUD-Setup-*.exe` | 装到 `%LOCALAPPDATA%\QuotaHUD`（免管理员）、可勾选开机自启、有开始菜单与桌面图标、带卸载 |
+| **便携版** | `QuotaHUD-Portable-*.exe` | **单个 exe**，放任意目录双击即用、不写注册表；首次启动慢 1~3 秒（解压运行时到临时目录） |
+
+> ⚠️ **不要**单独复制 `dist\QuotaHUD\QuotaHUD.exe` —— 那是 PyInstaller「文件夹版」的主程序，
+> 必须与同目录的 `_internal` 文件夹**放在一起**才能运行；单独拿出去双击会报「文件或资源错误」。
+> 想要单文件就用上面的**便携版**。
+
+- 首次启动只默认开启 DeepSeek 示例站，其余站点请在悬浮窗「设置」里自行添加
+- 两者都**未做代码签名**，Windows 可能弹 SmartScreen 警告 → 点「更多信息」→「仍要运行」
 
 ## 从源码运行
 
@@ -84,6 +92,17 @@ uv venv .venv && uv pip install -p .venv/Scripts/python.exe -r requirements.txt
 - 服务只监听回环地址，局域网内不可访问
 - 本仓库不含任何凭证；`credentials.json` / `stations.json` / `state.json` 已在 `.gitignore` 中
 
+## 常见问题
+
+| 现象 | 原因 / 解决 |
+|---|---|
+| 双击 exe 弹出「**文件或资源错误**」 | 你把「文件夹版」的 `QuotaHUD.exe` 单独复制出来了。它必须和 `_internal` 文件夹同目录；想要单文件请下**便携版** |
+| 双击后没反应、悬浮窗不出现 | 多半是**已在运行**：看系统托盘（可能收在「^」里）双击图标显示。若是启动失败，会弹窗说明原因，详情见 `%APPDATA%\QuotaHUD\startup.log` |
+| 提示「未知发布者」/ SmartScreen | 未做代码签名，点「更多信息」→「仍要运行」 |
+| 某站卡片显示错误 | 凭证过期（cookie 类站点常见）。在设置页重新粘贴 Cookie；`newapi_refresh` 类型站点刷新时会轮换 cookie，属正常现象 |
+| 卡片 token 只统计本机 | 该站没有可查的服务端账本接口，自动回退本机日志统计（卡片副行会注明） |
+| 想换端口 | `QuotaHUD.exe --port 15800` |
+
 ## 架构
 
 ```
@@ -101,11 +120,14 @@ QuotaHUD.iss    Inno Setup 安装包脚本
 ## 打包
 
 ```bash
-build.bat        # PyInstaller → 生成图标 → Inno Setup，一条龙
-# 产物：Output/QuotaHUD-Setup-1.0.0.exe
+build.bat        # 一键：图标 → 文件夹版(PyInstaller) → 便携版(onefile) → 安装包(Inno Setup)
+# 产物：
+#   dist/QuotaHUD/QuotaHUD.exe                文件夹版（需与 _internal 同目录，供安装包使用）
+#   dist/QuotaHUD-Portable.exe                便携版单文件（可直接分发）
+#   Output/QuotaHUD-Setup-1.0.0.exe           安装包
 ```
 
-需要 Python 3.11+、[Inno Setup 6](https://jrsoftware.org/isinfo.php)（仅打包需要）。
+需要 Python 3.11+、[Inno Setup 6](https://jrsoftware.org/isinfo.php)（仅做安装包需要）。
 
 ## 添加新站点类型（开发者）
 

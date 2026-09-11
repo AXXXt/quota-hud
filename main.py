@@ -166,6 +166,27 @@ def run_server(port):
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
+def msg_box(text, title="QuotaHUD", flags=0x40):
+    """原生弹窗。打包成窗口程序后 print 不可见，出错必须让用户看得见。"""
+    try:
+        ctypes.windll.user32.MessageBoxW(None, str(text), str(title), flags)
+    except Exception:
+        pass
+
+
+def log_startup(msg):
+    """把启动期异常写进 %APPDATA%\\QuotaHUD\\startup.log（无窗口时唯一的线索）"""
+    try:
+        import os
+        import traceback
+        d = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "QuotaHUD")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "startup.log"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + str(msg) + "\n" + traceback.format_exc() + "\n")
+    except Exception:
+        pass
+
+
 def port_busy(port):
     import socket
     s = socket.socket()
@@ -347,6 +368,15 @@ def main():
 
     # 端口被上一个实例占用：让它退位，避免"双击没反应"
     kill_stale_instance(PORT)
+    if port_busy(PORT):
+        msg_box(
+            f"QuotaHUD 似乎已经在运行了。\n\n"
+            f"请到系统托盘（右下角通知区域，可能收在「^」里）找到 QuotaHUD 图标，\n"
+            f"双击或右键菜单即可显示悬浮窗。\n\n"
+            f"若要完全重启：先在托盘右键退出，再重新双击本程序。\n"
+            f"（占用的端口：127.0.0.1:{PORT}）",
+            "QuotaHUD 已在运行", 0x40)
+        sys.exit(0)
 
     import quota_hud as Q
     if not Q.stations():
@@ -356,7 +386,17 @@ def main():
     t = threading.Thread(target=run_server, args=(PORT,), daemon=True)
     t.start()
     if not wait_http(f"http://127.0.0.1:{PORT}/api/state"):
-        print("[QuotaHUD] 服务启动失败", file=sys.stderr)
+        log_startup(f"server did not come up on port {PORT}")
+        msg_box(
+            f"本地服务启动失败（127.0.0.1:{PORT}）。\n\n"
+            f"可能原因：\n"
+            f"• 端口被别的程序占用（可在托盘退出旧实例后重试）\n"
+            f"• 安全软件/防火墙拦截\n"
+            f"• 程序文件不完整（若你是单独复制出来的 QuotaHUD.exe，\n"
+            f"  必须连同同目录的 _internal 文件夹一起保留，\n"
+            f"  或改用安装包 / 便携版）\n\n"
+            f"详情见 %APPDATA%\\QuotaHUD\\startup.log",
+            "QuotaHUD 启动失败", 0x10)
         sys.exit(1)
 
     if no_window:
