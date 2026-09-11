@@ -17,7 +17,7 @@ token 消耗**聚合到一个**液态玻璃悬浮窗**里，不用再一个个�
 |:---:|:---:|
 | ![胶囊态](docs/screenshots/pill.png) | ![展开面板](docs/screenshots/panel.png) |
 
-> 截图为实际运行效果；图中站点与余额为示例数据。
+> 截图为实际运行效果；若需对外展示，建议替换 `docs/screenshots/` 下的图片为脱敏版。
 
 ---
 
