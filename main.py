@@ -200,27 +200,63 @@ def port_busy(port):
 
 
 def kill_stale_instance(port):
-    """端口被占时，尝试结束上一个 QuotaHUD 实例（自己人，让位）"""
+    """端口被占时的三级处理：
+    ① 有活的 QuotaHUD 实例 → 结束它，端口释放则沿用原端口；
+    ② 结束后仍被占且确认是自己的实例（taskkill 失败等）→ 弹窗「已在运行」并退出；
+    ③ 没有任何活进程（TIME_WAIT 残留/第三方占用）→ 换备用端口，不跟内核滞留较劲。"""
+    import os
+    import subprocess
+
     if not port_busy(port):
         return
     try:
-        out = __import__("subprocess").run(
-            ["netstat", "-ano"], capture_output=True, text=True, timeout=10
-        ).stdout
+        out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=10).stdout
         pids = set()
         for line in out.splitlines():
             if f":{port}" in line and "LISTENING" in line:
                 pids.add(line.split()[-1])
-        me = __import__("os").getpid()
+        me = os.getpid()
+        live_qh = []
         for pid in pids:
-            if pid.isdigit() and int(pid) != me:
-                __import__("subprocess").run(["cmd", "/c", f"taskkill /F /PID {pid}"],
-                                             capture_output=True, timeout=10)
-        # 等端口释放
+            if not (pid.isdigit() and int(pid) != me):
+                continue
+            try:
+                tl = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                                    capture_output=True, text=True, timeout=10).stdout
+                pname = tl.split('","')[0].strip('"') if '","' in tl else ""
+            except Exception:
+                pname = ""
+            if "QuotaHUD" in pname:
+                live_qh.append(pid)
+            subprocess.run(["cmd", "/c", f"taskkill /F /PID {pid}"], capture_output=True, timeout=10)
         for _ in range(20):
             if not port_busy(port):
                 return
             time.sleep(0.3)
+        if live_qh:
+            msg_box(
+                "QuotaHUD 已经在运行了。\n\n"
+                "请到系统托盘（右下角通知区域，可能收在「^」里）找到 QuotaHUD 图标，\n"
+                "双击或右键菜单即可显示悬浮窗。\n\n"
+                "若要完全重启：先在托盘右键退出，再重新双击本程序。",
+                "QuotaHUD 已在运行", 0x40)
+            sys.exit(0)
+        # 没有活进程（TIME_WAIT 残留/第三方占用）：换备用端口
+        global PORT
+        for cand in (PORT + 1, PORT + 2, 0):
+            try:
+                import socket
+                s = socket.socket()
+                s.bind(("127.0.0.1", cand))
+                alt = s.getsockname()[1]
+                s.close()
+                break
+            except OSError:
+                continue
+        else:
+            return
+        log_startup(f"port {port} still busy (no live instance); falling back to {alt}")
+        PORT = alt
     except Exception:
         pass
 
